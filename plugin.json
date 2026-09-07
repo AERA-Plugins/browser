@@ -1,0 +1,18 @@
+{
+  "schema": 1,
+  "id": "browser",
+  "name": "AERA Browser",
+  "version": "1.0.0",
+  "description": "Private WebKit browser with modern mobile-site support.",
+  "type": "browser-runtime",
+  "entry": "browser",
+  "min_host_api": 1,
+  "payload": "runtime.xz",
+  "payload_url": "https://github.com/AERA-Plugins/browser/releases/download/v1.0.0/runtime.xz",
+  "payload_size": 36954912,
+  "payload_sha256": "c4e14e3c36ed58f1e32ea875611dccace20c393e78f8b18f5a7867cdb25b35b1",
+  "expanded_size": 178942536,
+  "expanded_sha256": "2fc5f215b5d5d1c224b07cfe8ef4c0e4da91375aa23c5de38d82e6cf11c90736",
+  "member_count": 435,
+  "permissions": ["network", "display", "temporary-memory"]
+}
