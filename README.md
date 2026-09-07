@@ -8,6 +8,11 @@ as a signed, optional plugin. Plugin Manager can install it persistently under
 `/sdcard/AERA/plugins/browser` or load it into `/tmp/aera/plugins/browser` for
 the current recovery session only.
 
+Version 1.1 adds a 1080×1920 backing surface while retaining a 360×640 logical
+mobile viewport, plus video audio through a dedicated GStreamer sink. The sink
+can only send fixed 48 kHz stereo PCM to AERA's root-owned local audio bridge;
+the isolated browser never receives direct ALSA, Binder, or partition access.
+
 ## Trust model
 
 - `plugin.json` is signed with the AERA Ed25519 release key.

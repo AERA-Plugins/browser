@@ -397,7 +397,7 @@ int main(int argc, char **argv) {
     g_set_object(&s->latest, buffer); Publish(s);
   }), &s);
   auto *toplevel = wpe_view_get_toplevel(s.view);
-  // Render a sharp 720x1280 backing store while exposing a 360x640 logical
+  // Render a sharp 1080x1920 backing store while exposing a 360x640 logical
   // Android handset viewport. The Mobile UA controls server-side selection;
   // the logical width controls responsive CSS and media queries.
   wpe_toplevel_scale_changed(toplevel, kDeviceScale);
