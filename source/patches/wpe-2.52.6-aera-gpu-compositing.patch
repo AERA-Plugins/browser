@@ -43,3 +43,16 @@
  #endif
  #endif
 
+--- a/Source/WebKit/WPEPlatform/wpe/headless/WPEViewHeadless.cpp
++++ b/Source/WebKit/WPEPlatform/wpe/headless/WPEViewHeadless.cpp
+@@ -107,7 +107,9 @@ static gboolean wpeViewHeadlessRenderBuffer(WPEView* view, WPEBuffer* buffer, co
+     auto now = g_get_monotonic_time();
+     if (!priv->lastFrameTime)
+         priv->lastFrameTime = now;
+-    auto next = priv->lastFrameTime + (G_USEC_PER_SEC / 60);
++    // AERA presents on a 120 Hz phone panel. Do not discard every other
++    // compositor frame in the generic headless backend.
++    auto next = priv->lastFrameTime + (G_USEC_PER_SEC / 120);
+     priv->lastFrameTime = now;
+     if (next <= now)
+         g_source_set_ready_time(priv->frameSource.get(), 0);

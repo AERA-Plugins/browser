@@ -5,16 +5,21 @@
 #include <string>
 
 namespace recovery_ui2::web {
-// One SOCK_SEQPACKET connection plus one fixed-size shared pixel buffer. No
+// One SOCK_SEQPACKET connection plus two fixed-size shared pixel buffers. No
 // pointers, file paths, shell commands or recovery operations cross this ABI.
-constexpr uint32_t kMagic = 0x41525031;
+constexpr uint32_t kMagic = 0x41525032;
 // Keep responsive layout at a normal 360 CSS-pixel handset width, but render
 // it at a sharp 3x phone density. Server-side mobile selection comes from the
 // Android Mobile user agent; this backing resolution only controls sharpness.
-constexpr int kWidth = 1080, kHeight = 1920;
-constexpr int kViewWidth = 360, kViewHeight = 640;
+constexpr int kWidth = 1080, kHeight = 2100;
+constexpr int kViewWidth = 360, kViewHeight = 700;
 constexpr double kDeviceScale = 3.0;
 constexpr uint32_t kFrameBytes = kWidth * kHeight * 4;
+constexpr uint32_t kFrameSlots = 2;
+constexpr uint32_t kSharedBytes = kFrameBytes * kFrameSlots;
+constexpr uint32_t FrameSlot(uint32_t sequence) {
+  return sequence % kFrameSlots;
+}
 enum class Kind : uint32_t { kOpen = 1, kBack, kForward, kReload, kStop,
   kTouchDown, kTouchMove, kTouchUp, kKey, kAck, kClose,
   kFrame = 32, kStatus, kError, kKeyboardShow, kKeyboardHide };

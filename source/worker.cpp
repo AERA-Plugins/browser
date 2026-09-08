@@ -63,7 +63,7 @@ struct Session {
   GMainLoop *loop = nullptr;
   WebKitWebView *web = nullptr;
   WPEView *view = nullptr;
-  uint8_t *pixels = nullptr;
+  uint8_t *shared = nullptr;
   WPEBuffer *latest = nullptr;
   uint32_t sequence = 0;
   bool pending = false;
@@ -139,6 +139,9 @@ static void CopyPixels(uint8_t *packed, const uint8_t *data, guint stride) {
   for (int y = 0; y < kHeight; ++y)
     memcpy(packed + y * kWidth * 4, data + y * stride, kWidth * 4);
 }
+static uint8_t *FramePixels(Session *s, uint32_t sequence) {
+  return s->shared + FrameSlot(sequence) * kFrameBytes;
+}
 static void Publish(Session *s) {
   if (s->pending || !s->latest) return;
   auto *buffer = s->latest;
@@ -157,22 +160,26 @@ static void Publish(Session *s) {
   // buffer-rendered is WebKit's commit notification. Comparing the complete
   // 8.3 MiB surface before every copy only duplicates memory traffic while
   // the compositor is actively scrolling.
-  CopyPixels(s->pixels, data, stride);
-  Message m; m.kind = Kind::kFrame; m.sequence = ++s->sequence;
+  const uint32_t next_sequence = s->sequence + 1;
+  CopyPixels(FramePixels(s, next_sequence), data, stride);
+  Message m; m.kind = Kind::kFrame; m.sequence = next_sequence;
   m.x = kWidth; m.y = kHeight; m.value = kFrameBytes;
+  s->sequence = next_sequence;
   s->pending = true; s->has_frame = true;
   Send(s, m);
   g_clear_object(&s->latest);
 }
 static void PublishPixels(Session *s, const uint8_t *data, guint stride) {
-  if (s->has_frame && SamePixels(s->pixels, data, stride)) return;
+  if (s->has_frame && SamePixels(FramePixels(s, s->sequence), data, stride)) return;
   // Pixel motion is a more reliable signal than DOM media events. Sites such
   // as YouTube move video between documents/players and can lose a play event,
   // while every genuinely advancing frame necessarily changes this buffer.
   s->visual_activity_until_us = g_get_monotonic_time() + 1000000;
-  CopyPixels(s->pixels, data, stride);
-  Message m; m.kind = Kind::kFrame; m.sequence = ++s->sequence;
+  const uint32_t next_sequence = s->sequence + 1;
+  CopyPixels(FramePixels(s, next_sequence), data, stride);
+  Message m; m.kind = Kind::kFrame; m.sequence = next_sequence;
   m.x = kWidth; m.y = kHeight; m.value = kFrameBytes;
+  s->sequence = next_sequence;
   s->pending = true; s->has_frame = true; Send(s, m);
 }
 static void SnapshotDone(GObject *source, GAsyncResult *result, gpointer data) {
@@ -191,7 +198,8 @@ static void SnapshotDone(GObject *source, GAsyncResult *result, gpointer data) {
       stride >= kWidth * 4 && stride <= kWidth * 4 + 4096 && bytes >= uint64_t(stride) * kHeight) {
     if (s->pending) {
       if (s->staged.empty()) s->staged.resize(kFrameBytes);
-      const uint8_t *baseline = s->staged_ready ? s->staged.data() : s->pixels;
+      const uint8_t *baseline = s->staged_ready ? s->staged.data() :
+          FramePixels(s, s->sequence);
       if (!SamePixels(baseline, data_bytes, stride)) {
         CopyPixels(s->staged.data(), data_bytes, stride);
         s->staged_ready = true;
@@ -294,13 +302,13 @@ int main(int argc, char **argv) {
     fprintf(stderr, "AERA browser requires an isolated, unprivileged launcher.\n"); return 78;
   }
   struct stat frame{}; int socket_type = 0; socklen_t type_size = sizeof(socket_type);
-  if (fstat(3, &frame) || !S_ISREG(frame.st_mode) || frame.st_size != kFrameBytes ||
+  if (fstat(3, &frame) || !S_ISREG(frame.st_mode) || frame.st_size != kSharedBytes ||
       getsockopt(4, SOL_SOCKET, SO_TYPE, &socket_type, &type_size) || socket_type != SOCK_SEQPACKET) {
     fprintf(stderr, "Invalid browser bridge: size=%lld type=%d errno=%d\n", (long long)frame.st_size, socket_type, errno); return 78;
   }
   Session s;
-  s.pixels = static_cast<uint8_t *>(mmap(nullptr, kFrameBytes, PROT_READ | PROT_WRITE, MAP_SHARED, 3, 0));
-  if (s.pixels == MAP_FAILED) { perror("Map browser bridge"); return 78; }
+  s.shared = static_cast<uint8_t *>(mmap(nullptr, kSharedBytes, PROT_READ | PROT_WRITE, MAP_SHARED, 3, 0));
+  if (s.shared == MAP_FAILED) { perror("Map browser bridge"); return 78; }
   close(3);
   // Only the browser shell owns recovery's pixel/control bridge. WebKit
   // auxiliary execs inherit their own IPC descriptors, never these channels.
@@ -425,6 +433,6 @@ int main(int argc, char **argv) {
       content, "aeraMedia", nullptr);
   g_object_unref(content); g_object_unref(network); g_object_unref(context);
   g_object_unref(settings); g_object_unref(display); g_main_loop_unref(s.loop);
-  munmap(s.pixels, kFrameBytes); close(4);
+  munmap(s.shared, kSharedBytes); close(4);
   return 0;
 }
