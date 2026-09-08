@@ -8,10 +8,16 @@ as a signed, optional plugin. Plugin Manager can install it persistently under
 `/sdcard/AERA/plugins/browser` or load it into `/tmp/aera/plugins/browser` for
 the current recovery session only.
 
-Version 1.1 adds a 1080×1920 backing surface while retaining a 360×640 logical
-mobile viewport, plus video audio through a dedicated GStreamer sink. The sink
-can only send fixed 48 kHz stereo PCM to AERA's root-owned local audio bridge;
-the isolated browser never receives direct ALSA, Binder, or partition access.
+Version 1.2 retains the sharp 1080×1920 backing surface and 360×640 logical
+mobile viewport, and adds hardware page compositing through Mesa 26.2.2,
+Zink, Turnip, and the OP13 Adreno 830 KGSL device. Video decoding remains on
+the CPU; page layers, scrolling, transforms, and final browser composition use
+the GPU. The isolated browser receives neither the recovery framebuffer nor
+Android's vendor EGL stack.
+
+Video audio uses a dedicated GStreamer sink. The sink can only send fixed
+48 kHz stereo PCM to AERA's root-owned local audio bridge; the isolated browser
+never receives direct ALSA, Binder, or partition access.
 
 ## Trust model
 
@@ -21,12 +27,15 @@ the isolated browser never receives direct ALSA, Binder, or partition access.
   payload again before extracting it into RAM.
 - Web content runs in AERA's fixed browser jail; the plugin does not receive
   recovery partition or decrypted-storage access.
+- The jail exposes only `/dev/kgsl-3d0` and `/dev/dma_heap/system` for rendering;
+  display, input, camera, Binder, and storage devices remain hidden.
 
 ## Building
 
-`source/` contains AERA's browser worker, runtime packer, and build notes. WPE
-WebKit and the other bundled libraries remain under their respective upstream
-licenses. Rebuild the staged ARM64 runtime, then run:
+`source/` contains AERA's browser worker, runtime packer, build notes, and the
+small WPE/Mesa patches required for the KGSL surfaceless path. WPE WebKit and
+the other bundled libraries remain under their respective upstream licenses.
+Rebuild the staged ARM64 runtime, then run:
 
 ```sh
 python3 source/pack.py STAGED_RUNTIME OUTPUT_DIRECTORY

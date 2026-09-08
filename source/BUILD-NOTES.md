@@ -10,15 +10,16 @@ browser jail; no browser runs at boot.
   Back/forward/reload/stop remain disabled until a real isolated session exists.
 - Deterministic ARM64/XZ payload; the recovery's existing LZ4 ramdisk format is
   unchanged. The payload carries WebKit, JavaScript JIT, WebAssembly, TLS,
-  certificates, full ICU data, fonts, keyboard data and the software worker.
+  certificates, full ICU data, fonts, keyboard data, Mesa, and the worker.
 - On-demand background expansion into a private RAM directory. Compressed and
   expanded SHA-256, fixed byte/member limits, CRC32, restricted paths/modes,
   no symlink traversal, no special files and cleanup on cancellation/exit.
   The verified directory is not published until the whole stream validates.
-- ARM64 `aera-browser-worker`, a WPE software-display subclass that does not
-  request EGL. Bounded 1080x1920 ARGB pixel bridge, one outstanding frame with
-  acknowledgement, validated input, temporary network sessions and TLS failure
-  enforcement. Downloads, file choosers, permissions and new windows are denied.
+- ARM64 `aera-browser-worker` with a surfaceless WPE display. WebKit coordinated
+  graphics is composited by Mesa EGL -> Zink -> Turnip -> Adreno KGSL, then WPE
+  publishes a bounded 1080x1920 ARGB SHM frame. One outstanding frame with
+  acknowledgement applies back-pressure. Downloads, file choosers, permissions
+  and new windows are denied.
 - Native LVGL-side nonblocking session transport, copied image buffers, required
   memfd size seals, navigation controls, touch scrolling and an ASCII keyboard.
   Closing the page closes its channel; a lost/invalid channel shows an error.
@@ -44,6 +45,14 @@ The temporary WPE build is at `/tmp/aera-webkit/build-video`; cross-build suppor
 and limitations are recorded in `/tmp/aera-webkit/STATUS.md`. The original
 runtime was measured by `/tmp/aera-webkit/package-runtime.py`.
 
+Apply `patches/wpe-2.52.6-aera-gpu-compositing.patch` after the AERA 1.1
+userspace-sandbox patch. It removes only that patch's software-compositor
+exceptions; the UID/capability/mount/seccomp validation remains active.
+Build Mesa 26.2.2 with only EGL, GLES2, the Zink Gallium driver, and the Turnip
+Vulkan driver (`freedreno-kmds=msm,kgsl`, surfaceless platform, no LLVM/GBM/
+video codecs), after applying
+`patches/mesa-26.2.2-zink-kgsl-surfaceless.patch`.
+
 ```sh
 bash bootable/recovery/ui2/browser/build-worker.sh /tmp/aera-worker
 python3 bootable/recovery/ui2/browser/pack.py STAGED_RUNTIME OUTPUT_DIRECTORY
@@ -56,10 +65,11 @@ and assert that Go cannot dispatch a recovery operation.
 
 ## Distribution
 
-Private development image only: not ready to publish. WebKit 2.52.6 is built
+Development release, not a production security release. WebKit 2.52.6 is built
 from the official release archive (SHA-256
 `b2bafef2751625b7fdf530f230ff0f542ff0eeba3590c3a989d931b2a55c858e`).
 The runtime includes third-party LGPL/BSD/MIT/font/data components, not just
 AERA's Apache-2.0 code. A complete license/source bundle, portable toolchain
 recipe and security-update procedure are still required before distribution.
 WebRTC, WebGL, encrypted media and PDF.js remain disabled; not every website is supported.
+Hardware video decoding is not included.

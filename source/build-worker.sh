@@ -1,14 +1,14 @@
 #!/bin/bash
 set -euo pipefail
-# Build against the already-built WPE 2.52.6 tree; no engine rebuild needed.
+# Build against the patched WPE 2.52.6 tree with accelerated compositing.
 browser_sources=$(cd -- "$(dirname -- "$0")" && pwd)
 webkit_build=${AERA_WEBKIT_BUILD:-/tmp/aera-webkit/build-video}
 webkit_source=${AERA_WEBKIT_SOURCE:-/tmp/wpewebkit-2.52.6}
 browser_sysroot=${AERA_BROWSER_SYSROOT:-/tmp/aera-webkit-sysroot}
 browser_output=${1:?Pass an output directory}
 mkdir -p "$browser_output"
-read -r -a glib_cflags <<< "$(/tmp/aera-webkit/pkg-config --cflags gio-unix-2.0 libsoup-3.0)"
-read -r -a glib_libs <<< "$(/tmp/aera-webkit/pkg-config --libs gio-unix-2.0)"
+read -r -a glib_cflags <<< "$(/tmp/aera-webkit/pkg-config --cflags gio-unix-2.0 libsoup-3.0 epoxy)"
+read -r -a glib_libs <<< "$(/tmp/aera-webkit/pkg-config --libs gio-unix-2.0 epoxy)"
 target_flags=(--target=aarch64-alpine-linux-musl --sysroot="$browser_sysroot"
   --gcc-toolchain="$browser_sysroot/usr")
 /tmp/aera-webkit/clang++ "${target_flags[@]}" -std=c++17 -Os -g0 -Wall -Wextra -Werror \

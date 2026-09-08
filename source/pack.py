@@ -58,7 +58,7 @@ def pack(root, output):
             manifest.append(dict(path=name, mode=mode, size=len(data),
                                  sha256=hashlib.sha256(data).hexdigest()))
         length = expanded.tell()
-        if length > 192 * 1024 * 1024:
+        if length > 256 * 1024 * 1024:
             raise ValueError('Runtime exceeds expanded cap')
         expanded.seek(0)
         digest = digest_file(expanded)

@@ -6,6 +6,7 @@
 #include <wpe/webkit.h>
 #include <wpe/wpe-platform.h>
 #include <wpe/headless/wpe-headless.h>
+#include <epoxy/egl.h>
 #include <glib-unix.h>
 #include <algorithm>
 #include <cstdio>
@@ -25,6 +26,24 @@ struct AERADisplay { WPEDisplay parent; Session *session = nullptr; };
 struct AERADisplayClass { WPEDisplayClass parent; };
 G_DEFINE_TYPE(AERADisplay, aera_display, WPE_TYPE_DISPLAY)
 static void aera_display_init(AERADisplay *display) { display->session = nullptr; }
+static gpointer GetEGLDisplay(WPEDisplay *, GError **error) {
+  if (!epoxy_has_egl_extension(nullptr, "EGL_MESA_platform_surfaceless")) {
+    g_set_error_literal(error, WPE_EGL_ERROR, WPE_EGL_ERROR_NOT_AVAILABLE,
+                        "Mesa surfaceless EGL is unavailable");
+    return nullptr;
+  }
+  EGLDisplay display = EGL_NO_DISPLAY;
+  if (epoxy_has_egl_extension(nullptr, "EGL_EXT_platform_base"))
+    display = eglGetPlatformDisplayEXT(EGL_PLATFORM_SURFACELESS_MESA,
+                                       EGL_DEFAULT_DISPLAY, nullptr);
+  else if (epoxy_has_egl_extension(nullptr, "EGL_KHR_platform_base"))
+    display = eglGetPlatformDisplay(EGL_PLATFORM_SURFACELESS_MESA,
+                                    EGL_DEFAULT_DISPLAY, nullptr);
+  if (display != EGL_NO_DISPLAY) return display;
+  g_set_error_literal(error, WPE_EGL_ERROR, WPE_EGL_ERROR_NOT_AVAILABLE,
+                      "Failed to create the surfaceless EGL display");
+  return nullptr;
+}
 static void aera_display_class_init(AERADisplayClass *klass) {
   auto *display = WPE_DISPLAY_CLASS(klass);
   display->connect = [](WPEDisplay *, GError **) -> gboolean { return TRUE; };
@@ -35,8 +54,10 @@ static void aera_display_class_init(AERADisplayClass *klass) {
     return WPE_TOPLEVEL(g_object_new(WPE_TYPE_TOPLEVEL_HEADLESS, "display", d, nullptr));
   };
   display->create_input_method_context = CreateInputMethodContext;
-  // Deliberately NO EGL virtual. WPE reports NOT_SUPPORTED, avoiding headless
-  // EGL initialization on recovery builds without Mesa/vendor GPU libraries.
+  // Mesa's surfaceless EGL renders WebKit's coordinated layer tree through
+  // Zink and Turnip. WPE then publishes a read-back SHM buffer to the trusted
+  // recovery UI, preserving the existing isolated pixel bridge.
+  display->get_egl_display = GetEGLDisplay;
 }
 struct Session {
   GMainLoop *loop = nullptr;
@@ -133,10 +154,9 @@ static void Publish(Session *s) {
       stride > kWidth * 4 + 4096 || bytes < uint64_t(stride) * kHeight) {
     Status(s, "Invalid browser frame layout."); g_main_loop_quit(s->loop); return;
   }
-  if (s->has_frame && SamePixels(s->pixels, data, stride)) {
-    g_clear_object(&s->latest);
-    return;
-  }
+  // buffer-rendered is WebKit's commit notification. Comparing the complete
+  // 8.3 MiB surface before every copy only duplicates memory traffic while
+  // the compositor is actively scrolling.
   CopyPixels(s->pixels, data, stride);
   Message m; m.kind = Kind::kFrame; m.sequence = ++s->sequence;
   m.x = kWidth; m.y = kHeight; m.value = kFrameBytes;
@@ -183,23 +203,25 @@ static void SnapshotDone(GObject *source, GAsyncResult *result, gpointer data) {
 }
 static gboolean SnapshotTick(gpointer data) {
   auto *s = static_cast<Session *>(data);
-  // WPE's rendered SHM buffers are cheaper and preserve compositor cadence.
-  // A full visible-page snapshot is expensive in the software-only recovery
-  // renderer, so it must not run at this timer's 125 Hz polling frequency.
+  // WPE's GPU-composited SHM buffers are cheaper and preserve compositor
+  // cadence. A full visible-page snapshot is only a compatibility fallback,
+  // so it must not run at this timer's 125 Hz polling frequency.
   // While loading or touching, cap fallback requests at 30 Hz; once idle, a
   // sparse refresh is enough for pages that never submit a native SHM buffer.
   const gint64 now = g_get_monotonic_time();
+  // Accelerated WPE commits every visible change through buffer-rendered.
+  // Snapshots are only a startup compatibility fallback; running them beside
+  // native commits forces a second full-page paint and stalls complex pages.
+  if (s->last_native_frame_us) return G_SOURCE_CONTINUE;
   const bool interacting = s->last_input_us && now - s->last_input_us < 500000;
   const bool loading = webkit_web_view_get_estimated_load_progress(s->web) < 0.999;
   const bool visual_motion = s->media_playing || now < s->visual_activity_until_us;
   const gint64 native_quiet_us = interacting ? 50000 : 500000;
   if (s->last_native_frame_us && now - s->last_native_frame_us < native_quiet_us)
     return G_SOURCE_CONTINUE;
-  // The headless Cairo port does not always submit a new WPE buffer for video
-  // frames. While media is playing, drive the non-overlapping snapshot path
-  // as fast as 60 Hz; snapshot_pending naturally applies back-pressure when
-  // software rendering takes longer than a frame. Static pages retain their
-  // sparse idle refresh and therefore do not waste recovery CPU.
+  // Some media paths do not always submit a new WPE buffer for video frames.
+  // While media is playing, drive the non-overlapping snapshot path as fast as
+  // 60 Hz; snapshot_pending naturally applies back-pressure.
   const gint64 interval_us = visual_motion ? 16667
       : (interacting || loading) ? 33333 : 500000;
   if (s->snapshot_pending ||
@@ -345,19 +367,6 @@ int main(int argc, char **argv) {
       WEBKIT_USER_SCRIPT_INJECT_AT_DOCUMENT_START, nullptr, nullptr);
   webkit_user_content_manager_add_script(content, media_script);
   webkit_user_script_unref(media_script);
-  // Recovery deliberately has no GPU web compositor. Respect a reduced-motion
-  // profile for every page so decorative infinite CSS animations do not occupy
-  // an entire CPU core and starve touch scrolling.
-  static const char reduced_motion[] =
-      "*,*::before,*::after{animation-duration:.001s!important;"
-      "animation-delay:0s!important;animation-iteration-count:1!important;"
-      "transition-duration:.001s!important;transition-delay:0s!important;}"
-      "html{scroll-behavior:auto!important;}";
-  auto *motion_sheet = webkit_user_style_sheet_new(reduced_motion,
-      WEBKIT_USER_CONTENT_INJECT_ALL_FRAMES, WEBKIT_USER_STYLE_LEVEL_USER,
-      nullptr, nullptr);
-  webkit_user_content_manager_add_style_sheet(content, motion_sheet);
-  webkit_user_style_sheet_unref(motion_sheet);
   s.web = WEBKIT_WEB_VIEW(g_object_new(WEBKIT_TYPE_WEB_VIEW, "display", display,
       "settings", settings, "web-context", context, "network-session", network,
       "user-content-manager", content, nullptr));
