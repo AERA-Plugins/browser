@@ -5,6 +5,7 @@ browser_sources=$(cd -- "$(dirname -- "$0")" && pwd)
 webkit_build=${AERA_WEBKIT_BUILD:-/tmp/aera-webkit/build-video}
 webkit_source=${AERA_WEBKIT_SOURCE:-/tmp/wpewebkit-2.52.6}
 browser_sysroot=${AERA_BROWSER_SYSROOT:-/tmp/aera-webkit-sysroot}
+llvm_bin=${AERA_LLVM_BIN:-/home/koaan/Desktop/AERA_16.0/prebuilts/clang/host/linux-x86/clang-r547379/bin}
 browser_output=${1:?Pass an output directory}
 mkdir -p "$browser_output"
 read -r -a glib_cflags <<< "$(/tmp/aera-webkit/pkg-config --cflags gio-unix-2.0 libsoup-3.0 epoxy)"
@@ -19,10 +20,10 @@ target_flags=(--target=aarch64-alpine-linux-musl --sysroot="$browser_sysroot"
   -I"$webkit_source/Source/WebKit/WPEPlatform" "${glib_cflags[@]}" \
   -c "$browser_sources/worker.cpp" -o "$browser_output/worker.o"
 /tmp/aera-webkit/clang++ "${target_flags[@]}" \
-  --ld-path=/home/koaan/android/fox_14.1/prebuilts/clang/host/linux-x86/clang-r510928/bin/ld.lld \
+  --ld-path="$llvm_bin/ld.lld" \
   "$browser_output/worker.o" -L"$webkit_build/lib" -lWPEWebKit-2.0 "${glib_libs[@]}" \
   -Wl,-z,relro,-z,now -Wl,--gc-sections -o "$browser_output/aera-browser-worker"
-/home/koaan/android/fox_14.1/prebuilts/clang/host/linux-x86/clang-r510928/bin/llvm-strip \
+"$llvm_bin/llvm-strip" \
   --strip-unneeded "$browser_output/aera-browser-worker"
 
 # The browser cannot access ALSA/Binder directly. Build the tiny GStreamer
@@ -34,9 +35,9 @@ read -r -a gst_libs <<< "$(/tmp/aera-webkit/pkg-config --libs gstreamer-base-1.0
   -c "$browser_sources/gst_aera_audio_sink.c" \
   -o "$browser_output/gst_aera_audio_sink.o"
 /tmp/aera-webkit/clang "${target_flags[@]}" \
-  --ld-path=/home/koaan/android/fox_14.1/prebuilts/clang/host/linux-x86/clang-r510928/bin/ld.lld \
+  --ld-path="$llvm_bin/ld.lld" \
   -shared "$browser_output/gst_aera_audio_sink.o" "${gst_libs[@]}" \
   -Wl,-z,relro,-z,now,--gc-sections \
   -o "$browser_output/libgstaeraaudio.so"
-/home/koaan/android/fox_14.1/prebuilts/clang/host/linux-x86/clang-r510928/bin/llvm-strip \
+"$llvm_bin/llvm-strip" \
   --strip-unneeded "$browser_output/libgstaeraaudio.so"

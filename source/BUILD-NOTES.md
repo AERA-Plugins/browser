@@ -19,10 +19,12 @@ browser jail; no browser runs at boot.
   graphics is composited by Mesa EGL -> Zink -> Turnip -> Adreno KGSL, then WPE
   publishes a bounded 1080x2100 ARGB SHM frame at up to 120 Hz. Two fixed slots
   let recovery upload directly from immutable shared pixels while one outstanding
-  frame and delayed acknowledgement apply back-pressure. Downloads, file choosers, permissions
-  and new windows are denied.
+  frame and delayed acknowledgement apply back-pressure. Downloads are routed
+  into AERA's narrow download mount; file choosers, permissions and new windows
+  remain denied.
 - Native LVGL-side nonblocking session transport, double-buffered shared images, required
-  memfd size seals, navigation controls, touch scrolling and an ASCII keyboard.
+  memfd size seals, navigation controls, two-finger pinch zoom, touch scrolling,
+  a native download manager and an ASCII keyboard.
   Closing the page closes its channel; a lost/invalid channel shows an error.
   Host tests use a synthetic channel, not an unsandboxed WebKit process.
 
