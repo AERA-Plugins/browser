@@ -18,8 +18,10 @@ namespace aera_sandbox {
 // This is not a substitute for the launcher's policy or its device tests.
 inline bool Validate() {
   gid_t groups[1] = {};
+  const int group_count = getgroups(1, groups);
   if (getuid() != 99090 || geteuid() != 99090 || getgid() != 99090 ||
-      getegid() != 99090 || getgroups(1, groups) != 1 || groups[0] != 3003 ||
+      getegid() != 99090 || group_count < 0 || group_count > 1 ||
+      (group_count == 1 && groups[0] != 3003) ||
       prctl(PR_GET_NO_NEW_PRIVS, 0, 0, 0, 0) != 1 ||
       prctl(PR_GET_SECCOMP, 0, 0, 0, 0) != 2 ||
       getenv("WEBKIT_DISABLE_SANDBOX_THIS_IS_DANGEROUS")) return false;
